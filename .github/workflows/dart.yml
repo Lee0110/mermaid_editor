@@ -1,17 +1,14 @@
 name: Build and Release
 
 on:
-  # 每次 push 到 main 分支时构建，或者打 tag 时触发 release
   push:
     branches: [main]
     tags:
       - 'v*'
-  # 每次 PR 到 main 分支时构建
   pull_request:
     branches: [main]
 
 jobs:
-  # 运行测试
   test:
     name: Run Tests
     runs-on: ubuntu-latest
@@ -21,7 +18,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.3'
+          flutter-version: '3.32.8'
           channel: 'stable'
           cache: true
       
@@ -34,18 +31,17 @@ jobs:
       - name: Run tests
         run: flutter test
 
-  # 构建 Windows 版本
   build-windows:
     name: Build Windows
     runs-on: windows-latest
-    needs: test  # 测试通过后才构建
+    needs: test
     steps:
       - uses: actions/checkout@v4
       
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.3'
+          flutter-version: '3.32.8'
           channel: 'stable'
           cache: true
       
@@ -66,18 +62,17 @@ jobs:
           path: mermaid_editor_windows.zip
           retention-days: 7
 
-  # 构建 macOS 版本
   build-macos:
     name: Build macOS
     runs-on: macos-latest
-    needs: test  # 测试通过后才构建
+    needs: test
     steps:
       - uses: actions/checkout@v4
       
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.3'
+          flutter-version: '3.32.8'
           channel: 'stable'
           cache: true
       
@@ -99,7 +94,6 @@ jobs:
           path: mermaid_editor_macos.zip
           retention-days: 7
 
-  # 发布 Release（仅在打 tag 时触发）
   release:
     name: Create Release
     runs-on: ubuntu-latest
