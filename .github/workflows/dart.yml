@@ -123,3 +123,45 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Calculate SHA256 for macOS
+        id: sha256
+        run: echo "SHA256=$(shasum -a 256 mermaid_editor_macos.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
+      
+      - name: Update Homebrew Cask
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/Lee0110/homebrew-tap.git
+          cd homebrew-tap
+          
+          mkdir -p Casks
+          
+          cat > Casks/mermaid-editor.rb << 'EOF'
+          cask "mermaid-editor" do
+            version "${{ steps.get_version.outputs.VERSION }}"
+            sha256 "${{ steps.sha256.outputs.SHA256 }}"
+
+            url "https://github.com/Lee0110/mermaid_editor/releases/download/v#{version}/mermaid_editor_macos.zip"
+            name "Mermaid Editor"
+            desc "A Mermaid diagram editor built with Flutter"
+            homepage "https://github.com/Lee0110/mermaid_editor"
+
+            app "mermaid_editor.app"
+
+            zap trash: [
+              "~/Library/Application Support/com.example.mermaidEditor",
+              "~/Library/Preferences/com.example.mermaidEditor.plist",
+            ]
+          end
+          EOF
+          
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Update mermaid-editor to v${{ steps.get_version.outputs.VERSION }}"
+          git push
