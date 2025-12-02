@@ -12,6 +12,7 @@ class StorageService {
   static StorageService? _instance;
   late String _basePath;
   late AppSettings _settings;
+  bool _initialized = false;
 
   StorageService._();
 
@@ -19,6 +20,9 @@ class StorageService {
     _instance ??= StorageService._();
     return _instance!;
   }
+
+  /// 是否已初始化
+  bool get isInitialized => _initialized;
 
   /// 初始化存储服务
   Future<void> init() async {
@@ -28,7 +32,14 @@ class StorageService {
     // 确保基础目录存在
     await Directory(_basePath).create(recursive: true);
     
-    // 加载设置
+    // 每次启动都重新加载设置，确保使用最新的配置
+    await _loadSettings();
+    
+    _initialized = true;
+  }
+  
+  /// 重新加载设置（供外部调用）
+  Future<void> reloadSettings() async {
     await _loadSettings();
   }
 

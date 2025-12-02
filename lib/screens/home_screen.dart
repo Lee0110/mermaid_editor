@@ -88,8 +88,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     setState(() {
       _documents = docs;
       _groups = groups;
-      if (docs.isNotEmpty && _currentDocument == null) {
-        _selectDocument(docs.first);
+      
+      // 如果当前文档不在新加载的列表中，或者列表为空时当前文档不为空，需要重新选择
+      final currentDocInList = _currentDocument != null 
+          ? docs.any((d) => d.id == _currentDocument!.id) 
+          : false;
+      
+      if (docs.isNotEmpty) {
+        if (!currentDocInList) {
+          // 当前文档不在列表中，选择第一个文档
+          _selectDocument(docs.first);
+        }
+      } else {
+        // 列表为空，清空当前选择
+        _currentDocument = null;
+        _codeController.clear();
       }
     });
   }
@@ -501,14 +514,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _openSettings() {
-    showDialog(
+    showDialog<bool>(
       context: context,
       builder: (context) => SettingsDialog(
         onCreateExampleGroup: _createExampleGroup,
       ),
-    ).then((result) {
+    ).then((result) async {
       if (result == true) {
-        _loadDocuments();
+        // 重新加载设置和文档，确保使用最新的存储路径
+        await StorageService.instance.reloadSettings();
+        await _loadDocuments();
       }
     });
   }
