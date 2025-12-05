@@ -12,7 +12,7 @@ class MermaidPreview extends StatefulWidget {
   final bool isFullscreen;
   final VoidCallback onToggleFullscreen;
   final VoidCallback? onEscPressed; // ESC 键回调
-  
+
   // 全屏导航相关
   final String? prevDocTitle; // 上一个文档标题，null表示没有上一个
   final String? nextDocTitle; // 下一个文档标题，null表示没有下一个
@@ -43,11 +43,16 @@ class MermaidPreviewState extends State<MermaidPreview> {
   bool _isLoading = true;
   String? _errorMessage;
   int _zoomLevel = 100;
-  
+
+  // 缩放比例编辑状态
+  bool _isEditingZoom = false;
+  final TextEditingController _zoomController = TextEditingController();
+  final FocusNode _zoomFocusNode = FocusNode();
+
   // SVG 原始尺寸
   int _svgWidth = 0;
   int _svgHeight = 0;
-  
+
   // 待处理的导出设置
   ExportSettings? _pendingExportSettings;
 
@@ -62,7 +67,9 @@ class MermaidPreviewState extends State<MermaidPreview> {
   void _updateMermaid() {
     if (_webViewController != null) {
       final escapedCode = _escapeForJs(widget.code);
-      _webViewController!.evaluateJavascript(source: 'renderMermaid(`$escapedCode`)');
+      _webViewController!.evaluateJavascript(
+        source: 'renderMermaid(`$escapedCode`)',
+      );
     }
   }
 
@@ -99,18 +106,57 @@ class MermaidPreviewState extends State<MermaidPreview> {
     _resetZoom();
   }
 
+  /// 开始编辑缩放比例
+  void _startEditingZoom() {
+    setState(() {
+      _isEditingZoom = true;
+      _zoomController.text = '$_zoomLevel';
+    });
+    // 延迟一下再聚焦并选中全部文字
+    Future.delayed(const Duration(milliseconds: 50), () {
+      _zoomFocusNode.requestFocus();
+      _zoomController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _zoomController.text.length,
+      );
+    });
+  }
+
+  /// 完成编辑缩放比例
+  void _finishEditingZoom() {
+    final zoom = int.tryParse(_zoomController.text);
+    if (zoom != null && mounted) {
+      setState(() {
+        _zoomLevel = zoom.clamp(10, 1000);
+        _isEditingZoom = false;
+      });
+      _webViewController?.evaluateJavascript(source: 'setZoom($_zoomLevel)');
+    } else {
+      setState(() {
+        _isEditingZoom = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _zoomController.dispose();
+    _zoomFocusNode.dispose();
+    super.dispose();
+  }
+
   void _exportPng() async {
     // 先获取 SVG 尺寸
     _webViewController?.evaluateJavascript(source: 'getSvgSize()');
   }
-  
+
   void _showExportDialog() async {
     if (_svgWidth <= 0 || _svgHeight <= 0) {
       // 如果没有有效尺寸，使用默认值
       _svgWidth = 800;
       _svgHeight = 600;
     }
-    
+
     final settings = await showDialog<ExportSettings>(
       context: context,
       builder: (context) => ExportDialog(
@@ -119,7 +165,7 @@ class MermaidPreviewState extends State<MermaidPreview> {
         originalHeight: _svgHeight,
       ),
     );
-    
+
     if (settings != null) {
       _pendingExportSettings = settings;
       final (width, height) = settings.calculateSize(_svgWidth, _svgHeight);
@@ -228,7 +274,7 @@ class MermaidPreviewState extends State<MermaidPreview> {
         children: [
           // 工具栏
           _buildToolbar(),
-          
+
           // 预览区域
           Expanded(
             child: ClipRRect(
@@ -248,6 +294,13 @@ class MermaidPreviewState extends State<MermaidPreview> {
                       disableContextMenu: true,
                       supportZoom: false,
                     ),
+                    // 彻底禁用右键菜单
+                    contextMenu: ContextMenu(
+                      settings: ContextMenuSettings(
+                        hideDefaultSystemContextMenuItems: true,
+                      ),
+                      menuItems: [],
+                    ),
                     onWebViewCreated: (controller) {
                       _webViewController = controller;
                       _setupJavaScriptHandlers(controller);
@@ -258,9 +311,7 @@ class MermaidPreviewState extends State<MermaidPreview> {
                     },
                   ),
                   if (_isLoading)
-                    const Center(
-                      child: CircularProgressIndicator(),
-                    ),
+                    const Center(child: CircularProgressIndicator()),
                   if (_errorMessage != null)
                     Positioned(
                       left: 0,
@@ -271,7 +322,11 @@ class MermaidPreviewState extends State<MermaidPreview> {
                         color: Colors.red.shade50,
                         child: Row(
                           children: [
-                            Icon(Icons.error_outline, color: Colors.red.shade700, size: 18),
+                            Icon(
+                              Icons.error_outline,
+                              color: Colors.red.shade700,
+                              size: 18,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -311,17 +366,11 @@ class MermaidPreviewState extends State<MermaidPreview> {
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-        border: Border(
-          bottom: BorderSide(color: Colors.grey.shade300),
-        ),
+        border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.preview,
-            size: 18,
-            color: Colors.black54,
-          ),
+          const Icon(Icons.preview, size: 18, color: Colors.black54),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
@@ -335,24 +384,54 @@ class MermaidPreviewState extends State<MermaidPreview> {
             ),
           ),
           const Spacer(),
-          
+
           // 缩放控制
           _ToolbarIconButton(
             icon: Icons.remove,
             onPressed: _zoomOut,
             tooltip: '缩小',
           ),
-          Container(
-            width: 50,
-            alignment: Alignment.center,
-            child: Text(
-              '$_zoomLevel%',
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.black54,
-              ),
-            ),
-          ),
+          _isEditingZoom
+              ? Container(
+                  width: 50,
+                  height: 24,
+                  alignment: Alignment.center,
+                  child: TextField(
+                    controller: _zoomController,
+                    focusNode: _zoomFocusNode,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 4,
+                      ),
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _finishEditingZoom(),
+                    onEditingComplete: _finishEditingZoom,
+                    onTapOutside: (_) => _finishEditingZoom(),
+                  ),
+                )
+              : GestureDetector(
+                  onDoubleTap: _startEditingZoom,
+                  child: Container(
+                    width: 50,
+                    alignment: Alignment.center,
+                    child: Tooltip(
+                      message: '双击编辑',
+                      child: Text(
+                        '$_zoomLevel%',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
           _ToolbarIconButton(
             icon: Icons.add,
             onPressed: _zoomIn,
@@ -363,11 +442,11 @@ class MermaidPreviewState extends State<MermaidPreview> {
             onPressed: _resetZoom,
             tooltip: '重置缩放',
           ),
-          
+
           const SizedBox(width: 8),
           Container(height: 20, width: 1, color: Colors.grey.shade300),
           const SizedBox(width: 8),
-          
+
           // 导出按钮
           _ToolbarButton(
             icon: Icons.image_outlined,
@@ -375,16 +454,14 @@ class MermaidPreviewState extends State<MermaidPreview> {
             onPressed: _exportPng,
           ),
           const SizedBox(width: 8),
-          _ToolbarButton(
-            icon: Icons.code,
-            label: 'SVG',
-            onPressed: _exportSvg,
-          ),
+          _ToolbarButton(icon: Icons.code, label: 'SVG', onPressed: _exportSvg),
           const SizedBox(width: 8),
-          
+
           // 全屏按钮
           _ToolbarButton(
-            icon: widget.isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+            icon: widget.isFullscreen
+                ? Icons.fullscreen_exit
+                : Icons.fullscreen,
             label: widget.isFullscreen ? '退出' : '全屏',
             onPressed: widget.onToggleFullscreen,
           ),
@@ -397,12 +474,10 @@ class MermaidPreviewState extends State<MermaidPreview> {
   Widget _buildFullscreenNavBar() {
     final hasPrev = widget.prevDocTitle != null;
     final hasNext = widget.nextDocTitle != null;
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.7),
-      ),
+      decoration: BoxDecoration(color: Colors.black.withOpacity(0.7)),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -416,7 +491,7 @@ class MermaidPreviewState extends State<MermaidPreview> {
               alignment: Alignment.centerLeft,
             ),
           ),
-          
+
           // 中间的退出按钮
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -426,7 +501,10 @@ class MermaidPreviewState extends State<MermaidPreview> {
                 onTap: widget.onToggleFullscreen,
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.white54),
                     borderRadius: BorderRadius.circular(8),
@@ -434,7 +512,11 @@ class MermaidPreviewState extends State<MermaidPreview> {
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.fullscreen_exit, color: Colors.white, size: 18),
+                      Icon(
+                        Icons.fullscreen_exit,
+                        color: Colors.white,
+                        size: 18,
+                      ),
                       SizedBox(width: 6),
                       Text(
                         '退出全屏',
@@ -446,7 +528,7 @@ class MermaidPreviewState extends State<MermaidPreview> {
               ),
             ),
           ),
-          
+
           // 下一个按钮
           Expanded(
             child: _FullscreenNavButton(
@@ -536,6 +618,12 @@ class MermaidPreviewState extends State<MermaidPreview> {
   </div>
   
   <script>
+    // 禁用右键菜单
+    document.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      return false;
+    });
+    
     mermaid.initialize({
       startOnLoad: false,
       theme: 'default',
@@ -833,10 +921,7 @@ class _ToolbarButton extends StatelessWidget {
               const SizedBox(width: 4),
               Text(
                 label,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.black54,
-                ),
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
               ),
             ],
           ),
@@ -864,10 +949,7 @@ class _ToolbarIconButton extends StatelessWidget {
       onPressed: onPressed,
       tooltip: tooltip,
       padding: const EdgeInsets.all(4),
-      constraints: const BoxConstraints(
-        minWidth: 28,
-        minHeight: 28,
-      ),
+      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
     );
   }
 }
@@ -893,7 +975,7 @@ class _FullscreenNavButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = enabled ? Colors.white : Colors.white38;
-    
+
     final iconWidget = Icon(icon, size: 16, color: color);
     final textWidget = Flexible(
       child: Text(
@@ -902,7 +984,7 @@ class _FullscreenNavButton extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
     );
-    
+
     return Align(
       alignment: alignment,
       child: Material(
@@ -913,7 +995,9 @@ class _FullscreenNavButton extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: enabled ? Colors.white.withOpacity(0.1) : Colors.transparent,
+              color: enabled
+                  ? Colors.white.withOpacity(0.1)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
